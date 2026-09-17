@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Same machine-local GameDir the mod build uses. -->
-  <Import Project="../../AutoTOT.local.props" Condition="Exists('../../AutoTOT.local.props')" />
+  <!-- Machine-local GameDir (FlightModel.local.props at the repo root, not tracked). -->
+  <Import Project="../../FlightModel.local.props" Condition="Exists('../../FlightModel.local.props')" />
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>

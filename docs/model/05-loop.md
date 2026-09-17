@@ -10,7 +10,7 @@ Euler, fixed `dt = 0.1 s`, returning the intercept time in seconds or −1 to de
 The division in this chapter is also the threading boundary. Setup reads live game state, so it runs
 on the main thread. The per-step loop in 5.2 reads none, so it is written as a pure function of a
 snapshot and can run on a worker. See "Where the integrator runs" in
-[`../ARCHITECTURE.md`](../ARCHITECTURE.md). Anything added below that reads the shooter, the target
+AutoTOT's [`ARCHITECTURE.md`](https://github.com/DatIsKlar/Sea-Power-Auto-Time-on-Target/blob/main/docs/ARCHITECTURE.md). Anything added below that reads the shooter, the target
 or a field the game rewrites during flight belongs in this section, not the next one.
 
 ```

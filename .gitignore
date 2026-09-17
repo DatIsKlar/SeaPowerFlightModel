@@ -1,0 +1,6 @@
+# Lab build output
+tools/lab/bin/
+tools/lab/obj/
+
+# Machine-local build paths
+FlightModel.local.props

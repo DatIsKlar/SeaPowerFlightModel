@@ -101,7 +101,7 @@ The integrator returns −1, handing the shot to tier 2, when:
   window.
 - The straight-line fallback uses a **separate** cache, so a cached fallback can never be misreported
   as a kinematic result.
-- All caches clear on mission reset (`Coordinator.Reset`).
+- All caches clear on mission reset (AutoTOT's `Coordinator.Reset`; every host mod does the same, see the README).
 
 ## File map
 
@@ -109,4 +109,4 @@ The integrator returns −1, handing the shot to tier 2, when:
 |---|---|
 | `Simulation/FlightTime.cs` | entry point, tier chain, caching, reflection lookup |
 | `Simulation/FlightTime.Integrator.cs` | tier 1, the integrator |
-| `Diagnostics/LaunchDiagnostics.cs` | observation of real flights for comparison |
+| AutoTOT's `Diagnostics/LaunchDiagnostics.cs` | observation of real flights for comparison |

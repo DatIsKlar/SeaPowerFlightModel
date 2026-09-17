@@ -32,4 +32,4 @@ Estimation is tiered: each tier is tried in turn and the first that returns a us
 | 2 | **the game's own estimator** | `MaxRangePrecise`; on the public branch this is tier 1 |
 | 3 | **straight line at max speed** | last resort, never expected to fire |
 
-See also [`../ARCHITECTURE.md`](../ARCHITECTURE.md) for the mod as a whole.
+See also AutoTOT's [`ARCHITECTURE.md`](https://github.com/DatIsKlar/Sea-Power-Auto-Time-on-Target/blob/main/docs/ARCHITECTURE.md) for the mod as a whole.

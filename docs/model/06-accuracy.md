@@ -164,7 +164,7 @@ kinematic measurement should be read against that band, not treated as a point v
   whole number of that coordinate's representable spacings. `targetVel` therefore applies that
   rounding per component, at the solve's position and at the base step the game has held over the
   preceding minute, not a momentary 1/30 s dip
-  ([GAME-BEHAVIOUR.md §4](../GAME-BEHAVIOUR.md#4-a-slow-ships-map-speed-depends-on-where-it-is)).
+  ([GAME-BEHAVIOUR.md §4](https://github.com/DatIsKlar/Sea-Power-Auto-Time-on-Target/blob/main/docs/GAME-BEHAVIOUR.md#4-a-slow-ships-map-speed-depends-on-where-it-is)).
   A 6.6 kn ship heading along one axis 2,048 to 4,096 u from the centre tile realises 0.87 of its
   reported speed, which over a 500 s flight is more than 200 m of aim point. Not predicted: a ship
   whose position crosses a power of two during the flight, and a physics-step change or recentre
@@ -186,7 +186,7 @@ kinematic measurement should be read against that band, not treated as a point v
   arrival is found at the start of the first step inside the target's hull, so an estimate reads up to
   one step late, about 0.04 s on average against the game's own step. And the model's position rounds on
   the float32 grid by a different increment than the game's physics tick does
-  ([GAME-BEHAVIOUR.md §4](../GAME-BEHAVIOUR.md#4-a-slow-ships-map-speed-depends-on-where-it-is)), which
+  ([GAME-BEHAVIOUR.md §4](https://github.com/DatIsKlar/Sea-Power-Auto-Time-on-Target/blob/main/docs/GAME-BEHAVIOUR.md#4-a-slow-ships-map-speed-depends-on-where-it-is)), which
   matters only far from the centre tile at high speed. Both are measured and left in for now: correcting
   the first alone makes four families' remaining positive biases worse.
 

@@ -368,7 +368,7 @@ replacements and the reconstruction together.
 ## Launch schedules
 
 `schedule` scores launch timing rather than flight time. It reads a folder of live-test runs
-(`tools/livetest/runs`), joins each round capture's launch time to its order's registration, and compares two
+(AutoTOT's `tools/livetest/runs`), joins each round capture's launch time to its order's registration, and compares two
 predictions of when each round leaves: the coordinator's shot interval and release lead, and a per-round simulation of
 the game's launcher gates (`LaunchSchedule.Simulate` in `LabSchedule.cs`).
 
