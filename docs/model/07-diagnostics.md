@@ -195,6 +195,25 @@ coarse Euler step integrates them exactly; only `sin(pitch)` is nonlinear and it
 Simulated against the game's own step sizes the answer moves <0.2% out to 300x and <1% at
 1000x, inside the 1.4% validation error, so this needs no compression-dependent behaviour.
 
+### Arrival is the launch gate, not the commanded depth
+
+The launcher commands the boat to `-_maxDepthUnity + 0.115` (25.4 ft above the weapon's ceiling,
+so 75 ft for a 100 ft ceiling), but it stops blocking the launch at the ceiling itself
+(`WeaponSystemLauncher.cs:414-419`; `SubmarineFacts.LaunchBlocked` evaluates the same test). The
+model steers toward the commanded depth, which is what shapes the ascent, and ends at the first of
+the two the boat reaches, `GateDepthU` when the caller supplies it. The two validation ascents above
+were timed to 75 ft, so they measure the steering law; what the launch delay needs is the time to
+the ceiling. For the Echo II run, which is ballast alone and so fixed by the two tank parameters, a
+port of this loop gives 49.9 s to the 100 ft ceiling against 58.3 s to 75 ft. Confirm against the
+`envelope-residual` lines of a submarine run.
+
+### No-progress bail
+
+A boat that makes no headway for 5 s returns "never". Making no headway counts only while the
+vertical rate is not improving either: a boat ordered to fire while still descending on its tanks
+moves the wrong way for as long as the tanks take to reverse (about 90 s from a 5 ft/s descent at
+0.055 ft/s^2), and before this rule that ascent read as "never" and the launch delay as zero.
+
 ### Known limit
 
 Speed is held constant for the whole ascent. A boat re-ordered to a new speed mid-climb will
