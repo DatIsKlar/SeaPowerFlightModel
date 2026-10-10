@@ -75,30 +75,48 @@ namespace AutoTOT
             const BindingFlags F = BindingFlags.Public | BindingFlags.Static;
             Type gt = typeof(GameTime);
             string resolved = "UNRESOLVED";
+            Exception failure = null;
 
             // Preferred: missionElapsedTime (double), the continuation of the removed float `time` and the
-            // clock _launchTime uses.
-            PropertyInfo mel = gt.GetProperty("missionElapsedTime", F);
-            if (mel != null && mel.GetGetMethod() != null)
+            // clock _launchTime uses. Each binding is guarded: a property whose type changes (as _launchTime went
+            // from float to double) makes CreateDelegate throw, and this runs once, from SimNow.
+            try
             {
-                MethodInfo get = mel.GetGetMethod();
-                var d = (Func<double>)Delegate.CreateDelegate(typeof(Func<double>), get);
-                _getter = () => (float)d();
-                resolved = "missionElapsedTime";
-            }
-            else
-            {
-                // Fallback for any build without it: the old float `time`.
-                PropertyInfo old = gt.GetProperty("time", F);
-                if (old != null && old.GetGetMethod() != null)
+                PropertyInfo mel = gt.GetProperty("missionElapsedTime", F);
+                if (mel != null && mel.GetGetMethod() != null)
                 {
-                    MethodInfo get = old.GetGetMethod();
-                    _getter = (Func<float>)Delegate.CreateDelegate(typeof(Func<float>), get);
-                    resolved = "time";
+                    MethodInfo get = mel.GetGetMethod();
+                    var d = (Func<double>)Delegate.CreateDelegate(typeof(Func<double>), get);
+                    _getter = () => (float)d();
+                    resolved = "missionElapsedTime";
                 }
             }
+            catch (Exception e) { _getter = null; failure = e; }
 
-            if (Coordinator.VerboseLog)
+            if (_getter == null)
+            {
+                // Fallback for any build without it: the old float `time`.
+                try
+                {
+                    PropertyInfo old = gt.GetProperty("time", F);
+                    if (old != null && old.GetGetMethod() != null)
+                    {
+                        MethodInfo get = old.GetGetMethod();
+                        _getter = (Func<float>)Delegate.CreateDelegate(typeof(Func<float>), get);
+                        resolved = "time";
+                    }
+                }
+                catch (Exception e) { _getter = null; failure = failure ?? e; }
+            }
+
+            // Unresolved, SimNow reads 0 forever and nothing can be timed, so this is said whatever the verbose
+            // setting.
+            if (_getter == null)
+                Bootstrap.Log.LogWarning(
+                    "[AutoTOT] game-clock: neither GameTime.missionElapsedTime nor GameTime.time could be read, " +
+                    "so the mission clock reads 0 and coordinated timing cannot work. A game update has probably " +
+                    "changed GameTime" + (failure != null ? $" ({failure.GetType().Name}: {failure.Message})." : "."));
+            else if (Coordinator.VerboseLog)
                 Bootstrap.Log.LogInfo($"[AutoTOT] game-clock: {resolved}");
         }
     }

@@ -16,7 +16,6 @@ namespace AutoTOT
         internal const string LoftCapMethodName = "LoftCap";
         internal const string OptimalLoftMethodName = "SearchOptimalLoftAltitude";
         internal const string AltitudeNodesMethodName = "BuildAltitudeNodes";
-        internal const int OptimalLoftParameterCount = 9;
         internal const int AltitudeNodesParameterCount = 6;
 
         // AmmunitionParameters fields that do not exist on the public branch. Mono faults a method reading a
@@ -101,31 +100,25 @@ namespace AutoTOT
 
                     if (_simIsBeta)
                     {
-                        _thrustMethod = ms.GetMethod(ThrustMethodName, new Type[]
-                        { typeof(AmmunitionParameters), typeof(bool), typeof(float), typeof(float) });
-                        _dragMethod = ms.GetMethod(DragMethodName, new Type[]
+                        // Exact signatures, public or not. The integrator passes arguments of exactly these
+                        // types, so a method matched on name and arity alone (an overload a game update adds)
+                        // would bind and then throw on every step.
+                        const BindingFlags AnyStatic = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+                        _thrustMethod = ms.GetMethod(ThrustMethodName, AnyStatic, null, new Type[]
+                        { typeof(AmmunitionParameters), typeof(bool), typeof(float), typeof(float) }, null);
+                        _dragMethod = ms.GetMethod(DragMethodName, AnyStatic, null, new Type[]
                         {
                             typeof(float), typeof(float), typeof(float), typeof(float), typeof(float),
                             typeof(bool), typeof(float), typeof(float), typeof(float), typeof(float)
-                        });
-                        _loftCapMethod = ms.GetMethod(LoftCapMethodName, new Type[]
-                        { typeof(AmmunitionParameters), typeof(float), typeof(float) });
-                        _optimalLoftMethod = ms.GetMethod(OptimalLoftMethodName, new Type[]
+                        }, null);
+                        _loftCapMethod = ms.GetMethod(LoftCapMethodName, AnyStatic, null, new Type[]
+                        { typeof(AmmunitionParameters), typeof(float), typeof(float) }, null);
+                        _optimalLoftMethod = ms.GetMethod(OptimalLoftMethodName, AnyStatic, null, new Type[]
                         {
                             typeof(AmmunitionParameters), typeof(Vector3), typeof(Vector3),
                             typeof(Vector3), typeof(float), typeof(bool), typeof(float),
                             typeof(float), typeof(float)
-                        });
-
-                        if (_thrustMethod == null)
-                            _thrustMethod = ResolveByName(ms, ThrustMethodName, 4);
-                        if (_dragMethod == null)
-                            _dragMethod = ResolveByName(ms, DragMethodName, 10);
-                        if (_loftCapMethod == null)
-                            _loftCapMethod = ResolveByName(ms, LoftCapMethodName, 3);
-                        if (_optimalLoftMethod == null)
-                            _optimalLoftMethod = ResolveByName(ms, OptimalLoftMethodName,
-                                                               OptimalLoftParameterCount);
+                        }, null);
 
                         const BindingFlags NPS = BindingFlags.NonPublic | BindingFlags.Static;
                         _altNodesMethod = ms.GetMethod(AltitudeNodesMethodName, NPS, null, new Type[]
@@ -168,6 +161,13 @@ namespace AutoTOT
                 Bootstrap.Log.LogInfo(
                     $"[AutoTOT] estimator: integrator ACTIVE ({branch} branch, " +
                     $"fastPath {(_thrustFn != null && _dragFn != null)})");
+                // Without drag the setup declines every kinematic round (FlightTime.Integrator.cs), so "ACTIVE"
+                // alone would hide that only cruise missiles are being integrated.
+                if (_dragMethod == null)
+                    Bootstrap.Log.LogWarning(
+                        $"[AutoTOT] estimator: {DragMethodName} did not bind, so every rocket-motor (kinematic) " +
+                        $"round falls back to MaxRangePrecise; only cruise missiles are integrated. A game update " +
+                        $"has probably changed {MissileSimulatorType}.{DragMethodName}.");
             }
             else
             {
@@ -199,21 +199,6 @@ namespace AutoTOT
                 _thrustFn = null; _dragFn = null;
                 ModLog.VerboseWarn("fast-path bind failed", e);
             }
-        }
-
-        private static MethodInfo ResolveByName(Type t, string name, int paramCount)
-        {
-            const BindingFlags F = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
-            foreach (MethodInfo m in t.GetMethods(F))
-            {
-                if (m.Name != name) continue;
-                ParameterInfo[] ps = m.GetParameters();
-                if (ps.Length != paramCount) continue;
-                bool byRef = false;
-                foreach (ParameterInfo p in ps) if (p.ParameterType.IsByRef) { byRef = true; break; }
-                if (!byRef) return m;   // the first match, as before
-            }
-            return null;
         }
 
         private static void LogSimInit(Type ms)
