@@ -1,5 +1,5 @@
 using System;
-﻿using UnityEngine;
+using UnityEngine;
 using SeaPower;
 
 namespace AutoTOT
@@ -558,7 +558,7 @@ namespace AutoTOT
             float       turnDerateThresholdKn  = i.TurnDerateThresholdKn;
             // The mover derates MaxTurnRate for the G-limit and only then spends the separate
             // hardcoded roll budget, so the addend rides above the derate rather than through it.
-                float       bankingRollAddend      = turnRate - turnRateBase;
+            float       bankingRollAddend      = turnRate - turnRateBase;
             // Arrival latch: has the missile reached the current phase's target altitude yet?
             // Before arrival it is transiting (bang-bang, so the finite-turn-rate nose-over still
             // overshoots); after, it is holding (proportional, so it cannot limit-cycle).
