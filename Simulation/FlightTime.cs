@@ -179,17 +179,42 @@ namespace AutoTOT
         /// <summary>
         /// Flight time for on-screen display. Same value as <see cref="Estimate"/>, memoised for
         /// several seconds. Never call this for a firing decision: use <see cref="Estimate"/>, which
-        /// the commit and release paths share.
+        /// the commit and release paths share. Returns -1 for a row whose first solve the per-frame budget
+        /// deferred, which the panel draws as no ETA.
         /// </summary>
         internal static float EstimateForDisplay(ObjectBase unit, string ammoId, ObjectBase target)
         {
             if (!TryKey(unit, ammoId, target, out _, out TofKey key)) return 0f;
             if (_displayCache.TryGet(key, out float cached)) return cached;
 
+            // Answered already for firing, possibly by a worker: nothing to solve.
+            if (TryCached(unit, ammoId, target, out float fresh))
+            {
+                _displayCache.Set(key, fresh);
+                return fresh;
+            }
+
+            // A budget on real solves per frame. Every row of a roster is first drawn, and so expires, in the same
+            // frame, so without one the panel ran a full integration per row inside one OnGUI pass every
+            // DisplayCacheTtlSeconds. A row over budget keeps its last value, or shows none, for a frame or two.
+            if (Time.frameCount != _displaySolveFrame)
+            {
+                _displaySolveFrame = Time.frameCount;
+                _displaySolvesThisFrame = 0;
+            }
+            if (_displaySolvesThisFrame >= MaxDisplaySolvesPerFrame)
+                return _displayCache.TryGetStale(key, out float stale) ? stale : -1f;
+
             float value = Estimate(unit, ammoId, target);
+            if (!_lastCallWasHit) _displaySolvesThisFrame++;
             _displayCache.Set(key, value);
             return value;
         }
+
+        /// <summary>Real solves <see cref="EstimateForDisplay"/> may run in one frame; cache hits are free.</summary>
+        private const int MaxDisplaySolvesPerFrame = 2;
+        private static int _displaySolveFrame = -1;
+        private static int _displaySolvesThisFrame;
 
         private static bool _lastCallWasHit;
         internal static bool WasLastCallCacheHit => _lastCallWasHit;
@@ -502,7 +527,16 @@ namespace AutoTOT
             }
             // The integrator declined to answer, so this call also pays for whichever tier does.
             ModelStats.Stalled();
+            return LowerTiers(unit, ap, target);
+        }
 
+        /// <summary>
+        /// The tiers below the integrator, for a shot it has already declined: the synchronous path above, and a
+        /// worker's declined or implausible answer in <see cref="DrainCompleted"/>, which must not pay for a second
+        /// integration on the main thread. Main thread only.
+        /// </summary>
+        private static float LowerTiers(ObjectBase unit, AmmunitionParameters ap, ObjectBase target)
+        {
             float maxRangeEst = MaxRangePreciseEndTime(unit, ap, target);
             ModelStats.TierUsed(maxRangeEst > MinValidSeconds ? ModelStats.Tier.MaxRangePrecise
                                                               : ModelStats.Tier.Failed);
@@ -530,7 +564,9 @@ namespace AutoTOT
                     _interceptTimeField = krObj.GetType().GetField("InterceptTime");
                 }
                 if (_interceptTimeField == null) return -1f;
-                return (float)_interceptTimeField.GetValue(krObj);
+                // Converted rather than unboxed, so a field that turns double on a game update (as _launchTime
+                // did) still reads instead of throwing on every call.
+                return Convert.ToSingle(_interceptTimeField.GetValue(krObj));
             }
             catch (Exception e)
             {

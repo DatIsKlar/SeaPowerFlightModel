@@ -764,7 +764,35 @@ namespace AutoTOT
             if (!TryBuildSolveInput(unit, ap, target, out SolveInput input, out phases, emitDiag, launch))
                 return -1f;
             ModelStats.SetupDone();
-            return Solve(in input, ap, ref phases);
+            try
+            {
+                return Solve(in input, ap, ref phases);
+            }
+            catch (Exception e)
+            {
+                // Uncaught, a throw here reaches Coordinator.Tick and stops every held order from releasing, on
+                // every tick. Declining instead lets the lower tiers answer this shot.
+                WarnSolveFault(ap, e);
+                return -1f;
+            }
+        }
+
+        // Ammunition whose step loop threw on the main thread, warned once each. Main thread only.
+        private static readonly System.Collections.Generic.HashSet<string> _solveFaultWarned =
+            new System.Collections.Generic.HashSet<string>();
+
+        /// <summary>
+        /// Say, once per ammunition, that the step loop threw and the integrator declined the shot. With the stack:
+        /// the cause is a game-side change (a thrust or drag helper that no longer takes these arguments) or a bug
+        /// in the loop, and either needs the trace to fix.
+        /// </summary>
+        private static void WarnSolveFault(AmmunitionParameters ap, Exception e)
+        {
+            string ammo = ap?._ammunitionFileName ?? "?";
+            if (!_solveFaultWarned.Add(ammo)) return;
+            Bootstrap.Log.LogWarning(
+                $"[AutoTOT] estimator fault {ammo}: the step loop threw, so the integrator declines this " +
+                $"ammunition's shots and a less accurate tier answers them. Reported once per ammunition:\n{e}");
         }
 
         /// <summary>

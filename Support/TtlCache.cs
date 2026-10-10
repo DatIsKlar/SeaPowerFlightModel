@@ -13,7 +13,11 @@ namespace AutoTOT
     {
         private struct Entry
         {
+            // When the entry was written, which its TTL runs from.
             public float StampUnscaled;
+            // When the value's inputs were taken, which its reported age runs from. Equal to the stamp unless
+            // the writer supplied an earlier origin, as a worker's answer does.
+            public float OriginUnscaled;
             public TValue Value;
         }
 
@@ -48,17 +52,18 @@ namespace AutoTOT
 
         /// <summary>
         /// Live value plus its age in the TTL's real seconds, for a caller that records staleness itself: a
-        /// shared entry may have been computed up to a whole TTL ago.
+        /// shared entry may have been computed up to a whole TTL ago, and one written with an origin is older
+        /// still by the time between its origin and its write.
         /// </summary>
         public bool TryGet(TKey key, out TValue value, out float ageSeconds)
         {
             if (_map.TryGetValue(key, out Entry entry))
             {
-                float age = Time.unscaledTime - entry.StampUnscaled;
-                if (age < _ttlSeconds)
+                float now = Time.unscaledTime;
+                if (now - entry.StampUnscaled < _ttlSeconds)
                 {
                     value = entry.Value;
-                    ageSeconds = age;
+                    ageSeconds = now - entry.OriginUnscaled;
                     _hits++;
                     return true;
                 }
@@ -70,11 +75,33 @@ namespace AutoTOT
         }
 
         /// <summary>Insert or overwrite; a new key in a full cache evicts first.</summary>
-        public void Set(TKey key, TValue value)
+        public void Set(TKey key, TValue value) => Set(key, value, Time.unscaledTime);
+
+        /// <summary>
+        /// Insert or overwrite a value whose inputs were taken at <paramref name="originUnscaled"/> (on this
+        /// cache's clock). The TTL still runs from now; only the age <see cref="TryGet(TKey, out TValue, out float)"/>
+        /// reports starts at the origin.
+        /// </summary>
+        public void Set(TKey key, TValue value, float originUnscaled)
         {
             float now = Time.unscaledTime;
             if (_map.Count >= _capacity && !_map.ContainsKey(key)) Evict(now);
-            _map[key] = new Entry { StampUnscaled = now, Value = value };
+            _map[key] = new Entry { StampUnscaled = now, OriginUnscaled = Mathf.Min(originUnscaled, now), Value = value };
+        }
+
+        /// <summary>
+        /// The last value written for the key, expired or not, for a display that would rather show a slightly old
+        /// number than recompute it this frame. False once the entry has been evicted. Not counted as a hit or miss.
+        /// </summary>
+        public bool TryGetStale(TKey key, out TValue value)
+        {
+            if (_map.TryGetValue(key, out Entry entry))
+            {
+                value = entry.Value;
+                return true;
+            }
+            value = default;
+            return false;
         }
 
         /// <summary>

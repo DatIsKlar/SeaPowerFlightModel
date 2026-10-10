@@ -26,15 +26,22 @@ namespace AutoTOT
             internal ObjectBase Target;
             internal float Result;
             // When the input snapshot was built on the main thread: the supersede check compares CapturedSim,
-            // and publishAge is measured from CapturedReal.
+            // and publishAge is measured from CapturedReal. CapturedUnscaled is the same instant on the cache's
+            // clock, so a published entry reports the age of its geometry rather than of its publication.
             internal float CapturedSim;
             internal float CapturedReal;
+            internal float CapturedUnscaled;
+            // Stopwatch timestamp at which a worker took the request, 0 while it is still queued. Written by the
+            // worker and read by the main thread, through Interlocked on both sides.
+            internal long StartedTicks;
         }
 
         private static readonly ConcurrentQueue<SolveRequest> _pending = new ConcurrentQueue<SolveRequest>();
         private static readonly ConcurrentQueue<SolveRequest> _done = new ConcurrentQueue<SolveRequest>();
-        // Main-thread only: stops a burst queueing the same key every frame while it is in flight.
-        private static readonly HashSet<TofKey> _inFlight = new HashSet<TofKey>();
+        // Main-thread only: the request each in-flight key waits on. Stops a burst queueing the same key every frame,
+        // and lets DrainCompleted publish only that request: after an eviction and re-queue, or a mission reset, an
+        // older request for the same key can finish first, and its geometry is the staler one.
+        private static readonly Dictionary<TofKey, SolveRequest> _inFlight = new Dictionary<TofKey, SolveRequest>();
         private static readonly SemaphoreSlim _signal = new SemaphoreSlim(0);
         private static Thread[] _workers;
 
@@ -53,19 +60,24 @@ namespace AutoTOT
         internal static long AsyncCompleted;
         internal static long AsyncDeclined;
 
-        // A worker that throws never enqueues its request, so its key stays in _inFlight and later
-        // RequestRefresh calls report "already queued" and keep the previous value. These count faults that
-        // are not shutdown aborts, and the age of the oldest key in flight.
+        // Step-loop faults on a worker (the request still completes, as a decline) and anything else a worker
+        // caught that is not a shutdown abort. Reset per mission.
         internal static long WorkerFaults;
         internal static long WorkerAborts;
-        private static readonly Dictionary<TofKey, float> _inFlightSince = new Dictionary<TofKey, float>();
 
         /// <summary>
-        /// Real seconds a key may sit in flight before <see cref="EvictIfStranded"/> takes it back: orders of
-        /// magnitude above a worst-case solve, so it fires only on a worker that is gone, never on one that
-        /// is merely slow.
+        /// Real seconds a worker may spend on one request before <see cref="EvictIfStranded"/> takes its key back:
+        /// orders of magnitude above a worst-case solve, so it fires only on a worker that is gone, never on one
+        /// that is merely slow.
         /// </summary>
         private const float StrandedKeyTimeoutReal = 10f;
+
+        /// <summary>
+        /// Real seconds a request may wait in the queue before a worker takes it. Waiting is not a fault: a large
+        /// strike on one slow worker queues for seconds, and evicting those keys would only re-queue them and
+        /// move their solves onto the main thread. Long enough that only a pool with no live worker reaches it.
+        /// </summary>
+        private const float QueuedKeyTimeoutReal = 60f;
 
         /// <summary>Keys taken back from a worker that never returned. Reported by the census.</summary>
         internal static int AsyncStranded;
@@ -82,7 +94,7 @@ namespace AutoTOT
         /// <summary>Called by the synchronous path after it writes the cache. Main thread only.</summary>
         private static void NoteSyncWrite(TofKey key)
         {
-            if (_inFlight.Contains(key)) _syncWrittenAt[key] = GameClock.SimNow();
+            if (_inFlight.ContainsKey(key)) _syncWrittenAt[key] = GameClock.SimNow();
         }
         // Written by DrainCompleted, read by the census line. Real seconds, main thread only.
         internal static float LastPublishAgeReal;
@@ -134,11 +146,23 @@ namespace AutoTOT
                     _signal.Wait();
                     while (_pending.TryDequeue(out SolveRequest r))
                     {
+                        Interlocked.Exchange(ref r.StartedTicks, System.Diagnostics.Stopwatch.GetTimestamp());
                         IntegratedPhases ph = default;
                         // Setup was timed on the main thread; this stamps the loop start on this thread, so
                         // LoopDone measures the worker's own work.
                         ModelStats.LoopStarting();
-                        r.Result = Solve(in r.Input, r.Ap, ref ph);
+                        try
+                        {
+                            r.Result = Solve(in r.Input, r.Ap, ref ph);
+                        }
+                        catch (Exception e) when (!(e is ThreadAbortException))
+                        {
+                            // Completed as a decline rather than dropped: a dropped request strands its key in
+                            // _inFlight, so RequestRefresh reports "already queued" and the caller reuses an old
+                            // estimate until EvictIfStranded. As a decline, DrainCompleted runs the lower tiers.
+                            r.Result = -1f;
+                            ReportWorkerFault(e);
+                        }
                         _done.Enqueue(r);
                     }
                 }
@@ -159,6 +183,18 @@ namespace AutoTOT
         }
 
         /// <summary>
+        /// Count a step-loop fault on a worker; the first since the last reset is logged with its stack, the rest
+        /// are counted on the estimator-census line. Worker thread.
+        /// </summary>
+        private static void ReportWorkerFault(Exception e)
+        {
+            if (Interlocked.Increment(ref WorkerFaults) != 1) return;
+            Bootstrap.Log.LogWarning(
+                "[AutoTOT] solve worker: the step loop threw, so that shot is answered by a less accurate tier. " +
+                $"Later faults are counted on the estimator-census line:\n{e}");
+        }
+
+        /// <summary>
         /// Queue a refresh for a value that already has a usable previous estimate. Returns false if
         /// the work could not be queued, in which case the caller keeps using its cached value.
         /// Main thread only.
@@ -169,7 +205,7 @@ namespace AutoTOT
             if (!TryKey(unit, ammoId, target, out AmmunitionParameters ap, out TofKey key)) return false;
             // A stranded key is taken back and reported as a failed refresh, so the caller runs its
             // synchronous fallback this tick instead of waiting for the re-queued solve.
-            if (_inFlight.Contains(key))
+            if (_inFlight.ContainsKey(key))
             {
                 if (!EvictIfStranded(key)) return true;   // already queued; not a failure
                 return false;                            // evicted: solve it here, now
@@ -179,40 +215,47 @@ namespace AutoTOT
                 return false;                            // integrator declines; caller goes synchronous
             ModelStats.SetupDone();                      // setup ran here, on the main thread
 
-            _inFlight.Add(key);
-            _inFlightSince[key] = Time.realtimeSinceStartup;
-            _pending.Enqueue(new SolveRequest
+            var request = new SolveRequest
             {
                 Key = key, Input = input, Ap = ap,
                 Unit = unit, AmmoId = ammoId, Target = target,
                 CapturedSim = GameClock.SimNow(),
                 CapturedReal = Time.realtimeSinceStartup,
-            });
+                CapturedUnscaled = Time.unscaledTime,
+            };
+            _inFlight[key] = request;
+            _pending.Enqueue(request);
             _signal.Release();
             return true;
         }
 
         /// <summary>
-        /// Takes back a key whose worker never came back. Otherwise it stays in flight forever: every later
+        /// Takes back a key whose request never came back. Otherwise it stays in flight forever: every later
         /// <see cref="RequestRefresh"/> returns "already queued", and the caller's synchronous fallback runs
-        /// only when a request fails. The way in is a worker exception mid-dequeue, since the catch in
-        /// <see cref="WorkerLoop"/> is per batch. The stranded request is not cancelled; if it finishes,
-        /// <see cref="DrainCompleted"/> discards it because the key is no longer in flight. Real time, not
-        /// sim time: a paused or compressed game must not change how long a stopped thread takes to notice.
-        /// Main thread only.
+        /// only when a request fails. A step-loop fault completes its request as a decline, so the way in is a
+        /// worker that is gone. A request a worker has taken is judged on its solve time
+        /// (<see cref="StrandedKeyTimeoutReal"/>), one still queued on its wait (<see cref="QueuedKeyTimeoutReal"/>),
+        /// so a backlog is not mistaken for a dead worker. The stranded request is not cancelled; if it
+        /// finishes, <see cref="DrainCompleted"/> discards it because it is no longer the request its key waits
+        /// on. Real time, not sim time: a paused or compressed game must not change how long a stopped thread
+        /// takes to notice. Main thread only.
         /// </summary>
         private static bool EvictIfStranded(TofKey key)
         {
-            if (!_inFlightSince.TryGetValue(key, out float since)) return false;
-            float age = Time.realtimeSinceStartup - since;
-            if (age < StrandedKeyTimeoutReal) return false;
+            if (!_inFlight.TryGetValue(key, out SolveRequest r)) return false;
+            long started = Interlocked.Read(ref r.StartedTicks);
+            bool solving = started != 0;
+            float age = solving
+                ? (float)((System.Diagnostics.Stopwatch.GetTimestamp() - started) /
+                          (double)System.Diagnostics.Stopwatch.Frequency)
+                : Time.realtimeSinceStartup - r.CapturedReal;
+            if (age < (solving ? StrandedKeyTimeoutReal : QueuedKeyTimeoutReal)) return false;
 
             _inFlight.Remove(key);
-            _inFlightSince.Remove(key);
             AsyncStranded++;
             Bootstrap.Log.LogWarning(
-                $"[AutoTOT] estimator: a solve key had been in flight {age:0.0}s with no result, " +
-                $"so it was evicted and will be re-queued. " +
+                $"[AutoTOT] estimator: a solve key had been {(solving ? "solving" : "queued")} {age:0.0}s " +
+                $"with no result, so it was evicted and will be re-queued. " +
                 $"workerFaults {WorkerFaults}, aborts {WorkerAborts}, stranded so far {AsyncStranded}.");
             return true;
         }
@@ -225,7 +268,7 @@ namespace AutoTOT
         {
             if (_workers == null) return false;
             if (!TryKey(unit, ammoId, target, out _, out TofKey key)) return false;
-            if (!_inFlight.Contains(key)) return false;
+            if (!_inFlight.ContainsKey(key)) return false;
             // Same eviction as RequestRefresh: otherwise a deferred commit waiting on a stranded key would
             // wait for the whole mission.
             return !EvictIfStranded(key);
@@ -239,10 +282,12 @@ namespace AutoTOT
         {
             while (_done.TryDequeue(out SolveRequest r))
             {
-                // Not in flight means a mission reset dropped this request while a worker was still
-                // running it. Its ids belong to the previous mission, so the answer is discarded.
-                if (!_inFlight.Remove(r.Key)) continue;
-                _inFlightSince.Remove(r.Key);
+                // Only the request its key waits on publishes. Anything else was dropped by a mission reset
+                // (its ids belong to the previous mission) or evicted as stranded, possibly with a newer request
+                // for the same key now in flight, whose answer must not be overwritten or lost.
+                if (!_inFlight.TryGetValue(r.Key, out SolveRequest current) || !ReferenceEquals(current, r))
+                    continue;
+                _inFlight.Remove(r.Key);
                 AsyncCompleted++;
                 // How old the geometry behind this answer is by the time anything can read it.
                 LastPublishAgeReal = Time.realtimeSinceStartup - r.CapturedReal;
@@ -265,7 +310,8 @@ namespace AutoTOT
                                    IsImplausible(r.Result, r.Unit, r.Ap, r.Target);
                 if (r.Result > MinValidSeconds && !implausible)
                 {
-                    _cache.Set(r.Key, r.Result);
+                    // Dated to the capture, so a reader's age is that of the geometry, queue and solve included.
+                    _cache.Set(r.Key, r.Result, r.CapturedUnscaled);
                     ModelStats.TierUsed(ModelStats.Tier.Integrator);
                     continue;
                 }
@@ -276,12 +322,13 @@ namespace AutoTOT
                         $"{StraightLineFloorSeconds(r.Unit, r.Ap, r.Target):0.0}s. Not cached.");
 
                 // The loop declined, as it does for a shot it cannot close (a SAM planned beyond its reach).
-                // The remaining tiers need ObjectBase, so they run here.
+                // The remaining tiers need ObjectBase, so they run here, and only they: re-running the integrator
+                // would repeat on the main thread the most expensive solve there is, one that ran to maxFlight.
                 AsyncDeclined++;
                 ModelStats.Stalled();
                 if (r.Unit == null || r.Unit.IsDestroyed || r.Target == null || r.Target.IsDestroyed)
                     continue;
-                float v = KinematicRaw(r.Unit, r.Ap, r.Target);
+                float v = LowerTiers(r.Unit, r.Ap, r.Target);
                 _cache.Set(r.Key, v);
             }
         }
@@ -296,8 +343,10 @@ namespace AutoTOT
             while (_pending.TryDequeue(out _)) { }
             while (_done.TryDequeue(out _)) { }
             _inFlight.Clear();
-            _inFlightSince.Clear();
             _syncWrittenAt.Clear();
+            // Per mission, so one fault does not keep the census line printing for the rest of the session.
+            Interlocked.Exchange(ref WorkerFaults, 0);
+            Interlocked.Exchange(ref WorkerAborts, 0);
             AsyncSuperseded = 0;
             AsyncStranded = 0;
             LastPublishAgeReal = 0f;
@@ -321,14 +370,14 @@ namespace AutoTOT
 
             float now = Time.realtimeSinceStartup;
             float oldest = 0f;
-            foreach (KeyValuePair<TofKey, float> kv in _inFlightSince)
+            foreach (KeyValuePair<TofKey, SolveRequest> kv in _inFlight)
             {
-                float age = now - kv.Value;
+                float age = now - kv.Value.CapturedReal;
                 if (age > oldest) oldest = age;
             }
 
             string faults = WorkerFaults > 0
-                ? $", workerFaults {WorkerFaults} (NOT shutdown aborts, a key may be stranded)"
+                ? $", workerFaults {WorkerFaults} (NOT shutdown aborts: those shots fell back to a lower tier)"
                 : ", workerFaults 0";
             Bootstrap.Log.LogInfo(
                 $"[AutoTOT] estimator-census: inFlight {_inFlight.Count}, queued {_pending.Count}, " +
@@ -348,7 +397,17 @@ namespace AutoTOT
         {
             IntegratedPhases ph = default;
             ModelStats.LoopStarting();   // see DumpInputFor: Solve times against this stamp
-            float mine = Solve(in r.Input, r.Ap, ref ph);
+            float mine;
+            try
+            {
+                mine = Solve(in r.Input, r.Ap, ref ph);
+            }
+            catch (Exception e)
+            {
+                // A verification run must not turn a fault the worker already absorbed into a tick error.
+                ModLog.Warn("solve-verify main-thread solve", e);
+                return;
+            }
             VerifyChecked++;
             if (mine.Equals(r.Result)) return;   // bitwise, so NaN == NaN counts as agreement
             VerifyMismatched++;
@@ -372,7 +431,8 @@ namespace AutoTOT
 
         /// <summary>
         /// As above, plus the value's age in real seconds: the cache is shared, so a hit may be up to the 0.5
-        /// s TTL old, which is 10 sim seconds at the 20x compression cap.
+        /// s TTL old, which is 10 sim seconds at the 20x compression cap. A worker's answer is dated to its
+        /// input snapshot, so its age also counts the time it spent queued and solving.
         /// </summary>
         internal static bool TryCached(ObjectBase unit, string ammoId, ObjectBase target,
                                        out float value, out float ageReal)
