@@ -72,7 +72,6 @@ namespace AutoTOT
         private static ThrustFn _thrustFn;
         private static DragFn _dragFn;
         private static MethodInfo _loftCapMethod;
-        private static MethodInfo _altNodesMethod;
         private static MethodInfo _optimalLoftMethod;
 
         private static void EnsureSimLookup()
@@ -120,22 +119,17 @@ namespace AutoTOT
                             typeof(float), typeof(float)
                         }, null);
 
-                        const BindingFlags NPS = BindingFlags.NonPublic | BindingFlags.Static;
-                        _altNodesMethod = ms.GetMethod(AltitudeNodesMethodName, NPS, null, new Type[]
-                        {
-                            typeof(AmmunitionParameters), typeof(float), typeof(float), typeof(float),
-                            typeof(float), typeof(float).MakeByRefType()
-                        }, null);
-
+                        // BuildAltitudeNodes is not bound: the model carries its own copy (FlightTime.AltitudeNodes.cs),
+                        // since 0.9.0's version needs Unity native buffers. It still needs LoftCap above.
                         BindFastPath();
 
-                        // Either miss changes the altitude law lofting rounds are flown on, and the
-                        // sim-init line that would name it is verbose-only. Said once, ungated.
-                        if (_optimalLoftMethod == null || _altNodesMethod == null)
+                        // A miss changes the altitude law lofting rounds are flown on, and the sim-init line that
+                        // would name it is verbose-only. Said once, ungated.
+                        if (_optimalLoftMethod == null || _loftCapMethod == null)
                             Bootstrap.Log.LogWarning(
                                 "[AutoTOT] estimator: beta branch detected, but " +
                                 (_optimalLoftMethod == null ? OptimalLoftMethodName + " " : "") +
-                                (_altNodesMethod == null ? AltitudeNodesMethodName + " " : "") +
+                                (_loftCapMethod == null ? LoftCapMethodName + " " : "") +
                                 "did not bind. Lofting rounds fall back to the model's own altitude " +
                                 "law and may be several seconds off; a game update has probably " +
                                 "changed the method.");
@@ -210,7 +204,6 @@ namespace AutoTOT
                     $"[AutoTOT] sim-init: beta {_simIsBeta}, thrust {(_thrustMethod != null)}, " +
                     $"drag {(_dragMethod != null)}, loftCap {(_loftCapMethod != null)}, " +
                     $"optimalLoft {(_optimalLoftMethod != null)}, " +
-                    $"altNodes {(_altNodesMethod != null)}, " +
                     $"fastPath {(_thrustFn != null && _dragFn != null)}");
                 foreach (var pair in new (string name, MethodInfo mi)[]
                 {

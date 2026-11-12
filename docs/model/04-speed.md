@@ -112,7 +112,7 @@ Which mechanisms apply to a given round:
                   │                          turn   = MaxTurnRate (+60°/s if SupportsBanking)
                   │
                   └─ kinematic ─┬─ _terminalLoft ──► TERMINAL-LOFT
-                                │                     altitude = BuildAltitudeNodes
+                                │                     altitude = AltitudeNodes (copy)
                                 │                     speed    = thrust + drag
                                 │                     no vacuum brake (loft below the density line)
                                 │

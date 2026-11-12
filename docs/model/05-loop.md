@@ -55,7 +55,7 @@ finalDist, finalAlt                                  # sea-skim pair or final-ph
 termDist  = ap._terminalApproachDist
           − maxVelKn · KU · ap._searchForTargetsTime  # floored at 0
 termAlt, descentDeg, descentOnsetDeg
-altNodes  = BuildAltitudeNodes(...) if isTerminalLoft else null
+altNodes  = AltitudeNodes(...) if kinematic lofter else null   # copy of the game's BuildAltitudeNodes
 
 pos = launchPos;  velKnots = unit._velocityInKnots;  t = 0
 prevPitch = launchPitch >= 0 ? launchPitch : 0

@@ -470,7 +470,9 @@ elevation; the round flies off the rail before it flies its stage.
 
 Ammunition with `_terminalLoft` does not fly the three-phase altitude profile. It follows a concave
 arc, and the game generates that arc itself: `BuildAltitudeNodes` returns a list of
-(flat-distance, altitude) nodes for the shot's own launch altitude, target altitude and range.
+(flat-distance, altitude) nodes for the shot's own launch altitude, target altitude and range. The
+model computes the same nodes with its own copy of that function (`FlightTime.AltitudeNodes`, see
+[§2](02-parameters.md)).
 
 The model follows those nodes by aiming at a point one lookahead ahead of its current position along
 the arc:

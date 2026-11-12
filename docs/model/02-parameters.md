@@ -69,10 +69,11 @@ on any handle makes the integrator decline, and the shot falls to the next tier.
 - `CalculateDrag(…, out float aero, out float induced, out float parallelG, …) → float` (13-arg,
   diagnostic; resolved with three `float.MakeByRefType()`)
 - `LoftCap(AmmunitionParameters, float launchAlt, float targetAlt) → float`
-- `BuildAltitudeNodes(AmmunitionParameters, float launchAlt, float targetAlt, float flatDistTotal,
-  float loftAltOverride, out float loftEndFlat) → List<Vector2>`; **private static**, resolved by
-  exact `GetMethod` with `typeof(float).MakeByRefType()` for the `out` parameter, because a by-name
-  search skips by-ref signatures
+- `BuildAltitudeNodes` is no longer bound. Up to 0.8.7 it was
+  `(AmmunitionParameters, float, float, float, float, out float) → List<Vector2>`; 0.9.0 changed it to
+  `(ref FlyoutBuffers, in MissileParams, …)`, which writes into Unity native memory. The model calls its
+  own copy, `FlightTime.AltitudeNodes`, with the old parameter list. Its output matched the game on every
+  case tested: 87,116 against 0.8.7 in the lab and 216,800 against 0.9.0 inside the game
 - `BurnEndTime(AmmunitionParameters, bool) → float`
 
 ## 2.4 Model constants

@@ -22,7 +22,10 @@ concave terminal-loft profile, and modded missiles the mod has never seen.
 - a **per-ammunition `.ini` field** read off `AmmunitionParameters`: `_maxVelocityInKnots`,
   `_maxLoftAngle`, `_terminalApproachDist`, `_terminalLoft`, and the rest;
 - a **value returned by a game method** through reflection: `CalculateThrustOverTime`,
-  `CalculateDrag`, `LoftCap`, `BuildAltitudeNodes`.
+  `CalculateDrag`, `LoftCap`, `SearchOptimalLoftAltitude`;
+- a **copy of a game method** where the game's version cannot be called: `BuildAltitudeNodes`, whose
+  0.9.0 form needs Unity native buffers, is ported in `Simulation/FlightTime.AltitudeNodes.cs` and
+  checked bit for bit against the game (`tools/lab` `nodecheck`, and the live test runner's `NodeSweep`).
 
 A mechanism that only fits one missile is rejected. Each must generalise to the physical class it
 belongs to, which is what lets the estimator handle unseen modded ammunition. The one deliberate

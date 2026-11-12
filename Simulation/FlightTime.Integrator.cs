@@ -989,27 +989,25 @@ namespace AutoTOT
                 float loftSpeedHoldDist = (lofting && flatDistTotal > finalDist)
                                         ? ResolveLoftSpeedHoldDist(ap) : 0f;
                 // Kinematic missiles are flown by Waypoint.KappaLoft whether TerminalLoft is set
-                // or not. BuildAltitudeNodes is the game's sampled form of that same cubic curve;
-                // the resolved override is the altitude TuneWaypoints selected for this shot.
-                if (!nonKin && lofting && _altNodesMethod != null &&
-                    flatDistTotal > MinimumLoftLegDistanceU)
+                // or not. BuildAltitudeNodes is the game's sampled form of that same cubic curve, and
+                // AltitudeNodes is the model's copy of it (FlightTime.AltitudeNodes.cs); the resolved
+                // override is the altitude TuneWaypoints selected for this shot.
+                if (!nonKin && lofting && flatDistTotal > MinimumLoftLegDistanceU)
                 {
                     try
                     {
-                        object[] an = { ap, Mathf.Max(launchPos.y, 0f), targetAlt0,
-                                        flatDistTotal, loftAlt, 0f };
-                        var nodes = _altNodesMethod.Invoke(null, an)
-                            as System.Collections.Generic.List<Vector2>;
+                        var nodes = AltitudeNodes(ap, Mathf.Max(launchPos.y, 0f), targetAlt0,
+                                                  flatDistTotal, loftAlt, out float loftEndFlat);
                         if (nodes != null && nodes.Count >= SampledCurveMinimumNodeCount)
                         {
                             altNodes = nodes.ToArray();
-                            kappaEndFlat = (float)an[5];
+                            kappaEndFlat = loftEndFlat;
                         }
                     }
                     catch (Exception e)
                     {
                         altNodes = null;
-                        WarnSetupFallback(ap, "the game's altitude-node sample", e);
+                        WarnSetupFallback(ap, "the altitude-node curve", e);
                     }
                 }
                 // What the stage switches are measured to. See FlightTime.Lead.cs.
