@@ -179,10 +179,7 @@ namespace AutoTOT.Lab
             const BindingFlags FStatic = BindingFlags.Public | BindingFlags.NonPublic |
                                          BindingFlags.Static;
             MethodInfo search = ms?.GetMethod(FlightTime.OptimalLoftMethodName, FStatic);
-            MethodInfo build = ms?.GetMethods(FStatic).FirstOrDefault(m =>
-                m.Name == FlightTime.AltitudeNodesMethodName &&
-                m.GetParameters().Length == FlightTime.AltitudeNodesParameterCount);
-            if (search == null || build == null)
+            if (search == null)
                 throw new InvalidOperationException("game optimized-loft surface is unavailable");
 
             Vector3 launchPos = V3(kv, "Pos");
@@ -197,18 +194,16 @@ namespace AutoTOT.Lab
             });
             resolved = Mathf.Clamp(resolved, floor, configured);
 
-            object[] args =
-            {
-                ap, Mathf.Max(launchPos.y, 0f), F(kv, "TargetAlt0"),
-                F(kv, "FlatDistTotal"), resolved, 0f
-            };
-            var nodes = build.Invoke(null, args) as List<Vector2>;
+            // The model's copy of BuildAltitudeNodes, identical to the game's (tools/lab nodecheck), so legacy
+            // captures replay on 0.9.0 DLLs, which no longer offer the 6-parameter method.
+            var nodes = FlightTime.AltitudeNodes(ap, Mathf.Max(launchPos.y, 0f), F(kv, "TargetAlt0"),
+                                                 F(kv, "FlatDistTotal"), resolved, out float loftEndFlat);
             if (nodes == null || nodes.Count < FlightTime.SampledCurveMinimumNodeCount)
-                throw new InvalidOperationException("game returned no optimized loft nodes");
+                throw new InvalidOperationException("no optimized loft nodes for this capture");
 
             kv["ConfiguredLoftAlt"] = configured.ToString("R", Inv);
             kv["LoftAlt"] = resolved.ToString("R", Inv);
-            kv["KappaEndFlat"] = ((float)args[5]).ToString("R", Inv);
+            kv["KappaEndFlat"] = loftEndFlat.ToString("R", Inv);
             kv["AltNodes"] = string.Join(";", nodes.Select(n =>
                 n.x.ToString("R", Inv) + "," + n.y.ToString("R", Inv)));
         }

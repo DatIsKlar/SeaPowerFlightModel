@@ -29,6 +29,7 @@
     <Compile Include="../../Support/ModLog.cs" />
     <Compile Include="../../Support/TtlCache.cs" />
     <Compile Include="../../Diagnostics/TelemetryCadence.cs" />
+    <Compile Include="../../Diagnostics/AltitudeNodeCheck.cs" />
     <Compile Include="*.cs" />
   </ItemGroup>
 

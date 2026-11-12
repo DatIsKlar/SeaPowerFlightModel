@@ -51,6 +51,7 @@ namespace AutoTOT.Lab
                     "       autotot-lab motor <solveinput-file> [scale ...]\n" +
                     "       autotot-lab selftest [corpus-dir]\n" +
                     "       autotot-lab parity [corpus-dir] [--launch-estimate]\n" +
+                    "       autotot-lab nodecheck [corpus-dir] [--fuzz N]\n" +
                     "       autotot-lab schedule <runs-dir> [--overhead s] [--orders]");
                 return 2;
             }
@@ -106,6 +107,7 @@ namespace AutoTOT.Lab
             if (args[0] == "climb") return Climb(args.Skip(1).ToArray());
             if (args[0] == "motor") return Motor(args.Skip(1).ToArray());
             if (args[0] == "selftest") return SelfTest(args.Skip(1).ToArray());
+            if (args[0] == "nodecheck") return NodeCheck(args.Skip(1).ToArray());
             if (args[0] == "parity") return Parity(args.Skip(1).ToArray());
             if (args[0] == "schedule") return ScheduleCommand(args.Skip(1).ToArray());
             if (args[0] == "readouts") return Readouts(args.Skip(1).ToArray());
